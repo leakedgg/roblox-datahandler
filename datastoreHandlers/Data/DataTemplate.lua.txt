@@ -1,0 +1,10 @@
+return {
+	-- Game 
+	Coins = 0,
+	Skins = {},
+	Gems = 0,
+	
+	-- Internal
+	PlayTime = 0,
+	LastJoined = os.time()
+}

@@ -1,0 +1,107 @@
+local DataStoreService = game:GetService("DataStoreService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local DataTemplate = require(script.DataTemplate)
+
+local DataVersion = script:GetAttribute("DataVersion")
+local DataStore = DataStoreService:GetDataStore("PlayerStore" .. tostring(DataVersion))
+local KeyPrefix = "PlayerData-"
+local LoadedData = {}
+
+local function WaitForRequestBudget(RequestType)
+	local CurrentBudget = DataStoreService:GetRequestBudgetForRequestType(RequestType)
+	
+	while CurrentBudget < 1 do
+		CurrentBudget = DataStoreService:GetRequestBudgetForRequestType(RequestType)
+		task.wait(5)
+	end
+end
+
+local function GetData(player)
+	local Data = LoadedData[player]
+	if not Data then return end
+	
+	return Data
+end
+
+local function Save(player, OnShutdown)
+	local Key = KeyPrefix .. tostring(player.UserId)
+	local Success, Error
+	local Data = GetData(player)
+	
+	if not Data then return end
+	
+	repeat 
+		if not OnShutdown then WaitForRequestBudget(Enum.DataStoreRequestType.UpdateAsync) end
+		
+		Success, Error = pcall(function()
+			DataStore:UpdateAsync(Key, function(PreviousData)
+				return Data
+			end)
+		end)
+	until Success
+	
+	if not Success then 
+		warn("Failed to save data: " .. tostring(Error))
+	end
+	
+	return true
+end
+
+local function Load(player)
+	local Key = KeyPrefix .. tostring(player.UserId)
+	local Success, Error
+	local Data
+	
+	repeat 
+		WaitForRequestBudget(Enum.DataStoreRequestType.GetAsync)
+		
+		Success, Error = pcall(function()
+			Data = DataStore:GetAsync(Key)
+		end)
+	until Success or Players:FindFirstChild(tostring(player))
+	
+	if not Success then 
+		warn("Failed to load data: " .. tostring(Error))
+		player:Kick("Failed to load data, please try rejoining")
+		
+		return false
+	end
+	
+	if not Data then  Data = DataTemplate end
+	
+	LoadedData[player] = Data
+	return true
+end
+
+local function OnLeave(player)
+	Save(player)
+	LoadedData[player] = nil 
+	
+	return true
+end
+
+local function OnGameClose(player)
+	if RunService:IsStudio() then task.wait(2); return end
+	
+	local AllPlayersSaved = Instance.new("BindableEvent")
+	local AllPlayers = Players:GetPlayers()
+	local RemaningPlayers = #AllPlayers
+	
+	for index, Player in ipairs(AllPlayers) do 
+		task.spawn(function()
+			Save(player, true)
+			RemaningPlayers -= 1
+			
+			if RemaningPlayers < 1 then AllPlayersSaved:Fire() end
+		end)
+	end
+	
+	AllPlayersSaved.Event:Wait()
+end
+
+Players.PlayerAdded:Connect(Load)
+Players.PlayerRemoving:Connect(OnLeave)
+
+game:BindToClose(OnGameClose)
